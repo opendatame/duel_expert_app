@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>🛒 Duel Expert – Product Categorization</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-image: url("{{ background_image }}");
+            background-size: cover;
+            background-attachment: fixed;
+            color: #222;
+            padding: 20px;
+        }
+        h1, h2 { color: #1a73e8; }
+        .metrics, .prediction, .form-section {
+            background-color: rgba(255,255,255,0.9);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: rgba(255,255,255,0.9);
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: left;
+        }
+        th { background-color: #1a73e8; color: white; }
+        tr:nth-child(even) { background-color: rgba(230,230,230,0.8); }
+        input[type="text"] {
+            width: 80%;
+            padding: 8px;
+            margin-right: 10px;
+        }
+        input[type="submit"] {
+            padding: 8px 15px;
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        input[type="submit"]:hover {
+            background-color: #155ab6;
+        }
+        .plotly-div { margin-top: 20px; }
+        #loading-message {
+            display: none;
+            margin-top: 10px;
+            font-weight: bold;
+            color: #e67e22;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛒 Duel Expert – Product Categorization</h1>
+
+    <!-- METRICS -->
+    <div class="metrics">
+        <h2>📊 Domain Expert Metrics</h2>
+        <p><strong>Accuracy:</strong> {{ domain_metrics['accuracy']|round(4) }}</p>
+        <p><strong>Precision (Macro):</strong> {{ domain_metrics['precision']|round(4) }}</p>
+        <p><strong>Recall (Macro):</strong> {{ domain_metrics['recall']|round(4) }}</p>
+        <p><strong>F1 (Macro):</strong> {{ domain_metrics['f1']|round(4) }}</p>
+        <p><strong>Top-10 Accuracy:</strong> {{ domain_metrics['top10_acc']|round(4) }}</p>
+    </div>
+
+    <div class="metrics">
+        <h2>📊 Duel Expert Metrics</h2>
+        <p><strong>Accuracy:</strong> {{ duel_metrics['accuracy']|round(4) }}</p>
+        <p><strong>Precision (Macro):</strong> {{ duel_metrics['precision']|round(4) }}</p>
+        <p><strong>Recall (Macro):</strong> {{ duel_metrics['recall']|round(4) }}</p>
+        <p><strong>F1 (Macro):</strong> {{ duel_metrics['f1']|round(4) }}</p>
+        <p><strong>Top-10 Accuracy:</strong> {{ duel_metrics['top10_acc']|round(4) }}</p>
+    </div>
+
+    <!-- PLOTLY -->
+    <div class="plotly-div">
+        {{ plot_html|safe }}
+    </div>
+
+    <!-- FORMULAIRE NOUVEAU PRODUIT -->
+    <div class="form-section">
+        <h2>📝 Prédiction d'un nouveau produit</h2>
+        <form id="predict-form" method="post">
+            <input type="text" name="product_text" placeholder="Entrez la description du produit" required>
+            <input type="submit" value="Prédire">
+        </form>
+
+        <!-- Message de chargement -->
+        <div id="loading-message">⏳ Chargement du modèle Duel Expert… veuillez patienter !</div>
+
+        {% if prediction_result %}
+        <div class="prediction">
+            <h3>Résultat :</h3>
+            <p><strong>Top-1 Domain Expert:</strong> {{ prediction_result.top1 }}</p>
+            <p><strong>Duel Expert corrigé (final):</strong> {{ prediction_result.final }}</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- TABLE DES PRODUITS -->
+    <h2>📦 Exemple de 10 premiers produits</h2>
+    <table>
+        <tr>
+            <th>#</th>
+            <th>Description</th>
+            <th>Top-1 Domain Expert</th>
+            <th>Top-10 Domain Expert</th>
+            <th>Final Duel Expert</th>
+            <th>Vrai label</th>
+        </tr>
+        {% for p in products %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ p.text[:150] }}{% if p.text|length > 150 %}...{% endif %}</td>
+            <td>{{ p.top1_pred }}</td>
+            <td>
+                {% if p.top10_preds is iterable %}
+                    {{ p.top10_preds[:10] }}
+                {% else %}
+                    {{ p.top10_preds }}
+                {% endif %}
+            </td>
+            <td>{{ p.final_duel_pred if p.final_duel_pred is defined else '-' }}</td>
+            <td>{{ p.true_label }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <!-- Script pour afficher le message de chargement -->
+    <script>
+        document.getElementById("predict-form").addEventListener("submit", function() {
+            document.getElementById("loading-message").style.display = "block";
+        });
+    </script>
+</body>
+</html>

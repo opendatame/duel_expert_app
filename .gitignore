@@ -1,0 +1,37 @@
+# ----------------------
+# Python
+# ----------------------
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.env
+*.log
+
+# ----------------------
+# Virtual environment
+# ----------------------
+venv/
+env/
+.venv/
+
+# ----------------------
+# Data / modèles
+# ----------------------
+*.pth
+*.pt
+*.csv
+
+# ----------------------
+# IDE / Editor
+# ----------------------
+.vscode/
+.idea/
+*.swp
+*.csv
+*.pth
+__pycache__/
+.env
