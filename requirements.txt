@@ -5,4 +5,5 @@ flask
 tqdm
 pandas
 plotly
+gunicorn app:app
 
