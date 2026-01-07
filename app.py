@@ -1,9 +1,7 @@
 # app.py
 from flask import Flask, render_template, request
 import pandas as pd
-import ast
-import os
-import gc
+import ast, os, gc, time, re
 import torch
 import torch.nn as nn
 from transformers import XLMRobertaTokenizerFast, XLMRobertaModel, AutoTokenizer, AutoModelForCausalLM
@@ -11,7 +9,6 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import plotly.graph_objs as go
 import plotly.io as pio
-import re
 
 # ----------------------------
 # CONFIG FLASK & PATHS
@@ -42,29 +39,30 @@ class DomainExpert(nn.Module):
         cls = out.last_hidden_state[:, 0, :]
         return self.classifier(self.dropout(cls))
 
-# Tokenizer & LabelEncoder
+# ----------------------------
+# TOKENIZER & LABEL ENCODER
+# ----------------------------
 tokenizer = XLMRobertaTokenizerFast.from_pretrained("xlm-roberta-large")
-
 df_global = pd.read_csv(GLOBAL_CSV, sep=';', on_bad_lines='skip')
 df_global['taxonomy_path'] = df_global['taxonomy_path'].astype(str)
-
 le = LabelEncoder()
 le.fit(df_global['taxonomy_path'].tolist())
 NUM_CLASSES = len(le.classes_)
 
+# ----------------------------
+# LOAD DOMAIN EXPERT MODEL
+# ----------------------------
 model = DomainExpert(NUM_CLASSES).to(DEVICE)
 if os.path.exists(PHASE2_CKPT):
     ckpt = torch.load(PHASE2_CKPT, map_location="cpu")
     sd = ckpt.get("model_state_dict", ckpt) if isinstance(ckpt, dict) else ckpt
     new_sd = {k.replace("module.", ""): v for k, v in sd.items()}
     model.load_state_dict(new_sd, strict=False)
-    del ckpt, sd
-    gc.collect()
-    torch.cuda.empty_cache()
+    del ckpt, sd; gc.collect(); torch.cuda.empty_cache()
 model.eval()
 
 # ----------------------------
-# LLM Mistral - chargement paresseux
+# LLM MISTRAL - chargement paresseux
 # ----------------------------
 llm_model = None
 llm_tokenizer = None
@@ -80,17 +78,15 @@ def load_llm():
         )
 
 def llm_correct(text, top10_preds, wrong_top1):
-    load_llm()  # le modèle est chargé seulement au moment de la prédiction
+    load_llm()
     prompt = f"""
 You are a GENERAL EXPERT correcting a WRONG product classification.
-
-IMPORTANT:
-The current top-1 prediction is WRONG and must NOT be selected again.
+IMPORTANT: The current top-1 prediction is WRONG and must NOT be selected again.
 
 Product:
 {text}
 
-Candidate categories (the correct one is in this list):
+Candidate categories:
 {', '.join(top10_preds)}
 
 Rules:
@@ -103,11 +99,7 @@ Final choice:
 """
     inputs = llm_tokenizer(prompt, return_tensors="pt").to(llm_model.device)
     outputs = llm_model.generate(
-        **inputs,
-        max_new_tokens=40,
-        do_sample=True,
-        temperature=0.3,
-        top_p=0.9,
+        **inputs, max_new_tokens=40, do_sample=True, temperature=0.3, top_p=0.9,
         pad_token_id=llm_tokenizer.eos_token_id
     )
     out_text = llm_tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -128,7 +120,6 @@ Final choice:
 # ----------------------------
 df_domain = pd.read_csv(DOMAIN_CSV, on_bad_lines="skip")
 df_duel = pd.read_csv(DUEL_CSV, on_bad_lines="skip")
-
 for df in [df_domain, df_duel]:
     if "description" in df.columns and "text" not in df.columns:
         df.rename(columns={"description": "text"}, inplace=True)
@@ -136,91 +127,98 @@ for df in [df_domain, df_duel]:
         df["top10_preds"] = df["top10_preds"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 
 # ----------------------------
-# METRICS CALCUL
+# METRICS
 # ----------------------------
 def compute_top1_metrics(df, pred_col):
     y_true = df["true_label"]
     y_pred = df[pred_col]
-    acc = accuracy_score(y_true, y_pred)
-    prec = precision_score(y_true, y_pred, average="macro", zero_division=0)
-    rec = recall_score(y_true, y_pred, average="macro", zero_division=0)
-    f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
-    return {"accuracy": acc, "precision": prec, "recall": rec, "f1": f1}
+    return {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, average="macro", zero_division=0),
+        "recall": recall_score(y_true, y_pred, average="macro", zero_division=0),
+        "f1": f1_score(y_true, y_pred, average="macro", zero_division=0)
+    }
 
 def compute_top10_accuracy(df, top10_col):
     return df.apply(lambda row: row["true_label"] in row[top10_col][:10], axis=1).mean()
 
 domain_metrics = compute_top1_metrics(df_domain, "top1_pred")
 domain_metrics["top10_acc"] = compute_top10_accuracy(df_domain, "top10_preds")
-
 duel_metrics = compute_top1_metrics(df_duel, "final_duel_pred")
 duel_metrics["top10_acc"] = compute_top10_accuracy(df_duel, "top10_preds")
 
 # ----------------------------
-# PLOTLY BAR
+# PLOTLY METRICS BAR
 # ----------------------------
 def create_metrics_bar(domain_metrics, duel_metrics):
     categories = ["Accuracy Top-1", "Top-10 Accuracy", "F1 Macro"]
-    domain_values = [domain_metrics["accuracy"], domain_metrics["top10_acc"], domain_metrics["f1"]]
-    duel_values = [duel_metrics["accuracy"], duel_metrics["top10_acc"], duel_metrics["f1"]]
-
     fig = go.Figure(data=[
-        go.Bar(name="Domain Expert", x=categories, y=domain_values, marker_color="#1f77b4"),
-        go.Bar(name="Duel Expert", x=categories, y=duel_values, marker_color="#2ca02c")
+        go.Bar(name="Domain Expert", x=categories, y=[domain_metrics["accuracy"], domain_metrics["top10_acc"], domain_metrics["f1"]], marker_color="#1f77b4"),
+        go.Bar(name="Duel Expert", x=categories, y=[duel_metrics["accuracy"], duel_metrics["top10_acc"], duel_metrics["f1"]], marker_color="#2ca02c")
     ])
-    fig.update_layout(
-        title="📊 Comparaison Domain vs Duel Expert",
-        yaxis=dict(title="Valeur métrique"),
-        barmode="group",
-        template="plotly_white",
-        height=400
-    )
+    fig.update_layout(title="📊 Comparaison Domain vs Duel Expert", yaxis=dict(title="Valeur métrique"), barmode="group", template="plotly_white", height=400)
     return pio.to_html(fig, full_html=False)
 
 plot_metrics_html = create_metrics_bar(domain_metrics, duel_metrics)
 
 # ----------------------------
-# ROUTE FLASK
-# ----------------------------
-# ROUTE FLASK
+# FLASK ROUTE
 # ----------------------------
 @app.route("/", methods=["GET", "POST"])
 def index():
-    prediction_result = None
+    prediction_results = []
+    llm_msg = ""
+    elapsed_time = None
+    start_time = time.time()
 
-    if request.method == "POST":
+    uploaded_file = request.files.get("csv_file")
+    products = []
+
+    # Si CSV uploadé
+    if uploaded_file:
+        try:
+            df_new = pd.read_csv(uploaded_file, sep=";", on_bad_lines="skip")
+            if "description" in df_new.columns and "text" not in df_new.columns:
+                df_new.rename(columns={"description": "text"}, inplace=True)
+            products = df_new["text"].tolist()
+        except Exception as e:
+            llm_msg = f"Erreur lecture CSV : {str(e)}"
+    else:
+        # Saisie manuelle
         new_product = request.form.get("product_text")
         if new_product:
-            # Tokenize & predict Domain Expert
-            enc = tokenizer(new_product, truncation=True, padding="max_length",
-                            max_length=MAX_LEN, return_tensors="pt")
-            input_ids = enc["input_ids"].to(DEVICE)
-            attention_mask = enc["attention_mask"].to(DEVICE)
+            products = [new_product]
 
-            with torch.no_grad():
-                logits = model(input_ids=input_ids, attention_mask=attention_mask)
-                top1_idx = torch.argmax(logits, dim=-1).item()
-                top1_label = le.inverse_transform([top1_idx])[0]
+    # Boucle sur tous les produits
+    for prod in products:
+        enc = tokenizer(prod, truncation=True, padding="max_length", max_length=MAX_LEN, return_tensors="pt")
+        input_ids = enc["input_ids"].to(DEVICE)
+        attention_mask = enc["attention_mask"].to(DEVICE)
 
-            # Obtenir top10 à partir du CSV (exemple)
-            top10_candidates = df_domain["top10_preds"].iloc[0][:10] if "top10_preds" in df_domain.columns else [top1_label]
+        with torch.no_grad():
+            logits = model(input_ids=input_ids, attention_mask=attention_mask)
+            top1_idx = torch.argmax(logits, dim=-1).item()
+            top1_label = le.inverse_transform([top1_idx])[0]
 
-            # ----------------------------
-            # NE CHARGE LE LLM QUE SI TOP-1 FAUX
-            # ----------------------------
-            # Vérification : si top1_label n'est pas correct selon top10 ou autre règle
-            is_top1_wrong = top1_label not in top10_candidates  # ou une autre logique selon ton dataset
+        # Top10 candidats
+        top10_candidates = df_domain["top10_preds"].iloc[0][:10] if "top10_preds" in df_domain.columns else [top1_label]
 
-            if is_top1_wrong:
-                # Charger et utiliser le LLM seulement ici
-                final_label = llm_correct(new_product, top10_candidates, top1_label)
-            else:
-                final_label = top1_label  # Top-1 correct → pas de LLM
+        # Top-1 correct ?
+        if top1_label not in top10_candidates:
+            final_label = llm_correct(prod, top10_candidates, top1_label)
+            llm_msg = "LLM utilisé pour raffinement"
+        else:
+            final_label = top1_label
+            llm_msg = "Top-1 correct, LLM non utilisé"
 
-            prediction_result = {
-                "top1": top1_label,
-                "final": final_label
-            }
+        prediction_results.append({
+            "text": prod,
+            "top1": top1_label,
+            "final": final_label,
+            "top10": top10_candidates
+        })
+
+    elapsed_time = round(time.time() - start_time, 2)
 
     example_products = df_duel.head(10).to_dict(orient="records")
 
@@ -231,9 +229,10 @@ def index():
         duel_metrics=duel_metrics,
         products=example_products,
         plot_html=plot_metrics_html,
-        prediction_result=prediction_result
+        prediction_results=prediction_results,
+        llm_msg=llm_msg,
+        elapsed_time=elapsed_time
     )
 
-
 if __name__ == "__main__":
-    app.run(debug=True, port=8090)
+    app.run(debug=True, port=5000)
