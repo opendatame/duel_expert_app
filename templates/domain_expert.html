@@ -133,41 +133,25 @@
         <form id="predict-form" method="post" enctype="multipart/form-data">
             <input type="text" name="product_text" placeholder="Entrez la description du produit">
             <br><br>
-            <input type="file" name="product_csv" accept=".csv">
+            <input type="file" name="csv_file" accept=".csv">
             <br><br>
             <input type="submit" value="Prédire">
         </form>
 
         <div id="loading-message">⏳ Chargement du modèle Duel Expert… veuillez patienter !</div>
 
-        {% if prediction_result %}
+        {% if prediction_results %}
         <div class="prediction">
             <h3>Résultat :</h3>
-            {% if prediction_result.single %}
-                <p><strong>Top-1 Domain Expert:</strong> {{ prediction_result.top1 }}</p>
-                <p><strong>Duel Expert corrigé (final):</strong> {{ prediction_result.final }}</p>
-                <p><strong>Temps de prédiction:</strong> {{ prediction_result.time }} secondes</p>
-            {% else %}
-                <p><strong>{{ prediction_result.count }} produits prédits à partir du CSV</strong></p>
-                <table>
-                    <tr>
-                        <th>#</th>
-                        <th>Description</th>
-                        <th>Top-1 Domain Expert</th>
-                        <th>Top-10 Candidates</th>
-                        <th>Duel Expert final</th>
-                    </tr>
-                    {% for p in prediction_result.list %}
-                    <tr>
-                        <td>{{ loop.index }}</td>
-                        <td>{{ p.text[:150] }}{% if p.text|length > 150 %}...{% endif %}</td>
-                        <td>{{ p.top1 }}</td>
-                        <td>{{ p.top10 }}</td>
-                        <td>{{ p.final }}</td>
-                    </tr>
-                    {% endfor %}
-                </table>
-                <p><strong>Temps total:</strong> {{ prediction_result.time }} secondes</p>
+            {% for res in prediction_results %}
+                <p><strong>Top-1 Domain Expert:</strong> {{ res.top1 }}</p>
+                <p><strong>Duel Expert corrigé (final):</strong> {{ res.final }}</p>
+                <p><strong>Top-10 candidats:</strong> {{ res.top10 }}</p>
+                <hr>
+            {% endfor %}
+            <p><strong>Temps total de prédiction:</strong> {{ elapsed_time }} secondes</p>
+            {% if llm_msg %}
+                <p><em>{{ llm_msg }}</em></p>
             {% endif %}
         </div>
         {% endif %}
