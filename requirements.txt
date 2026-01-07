@@ -1,13 +1,23 @@
-torch
-transformers
-scikit-learn
-flask
-tqdm
-pandas
-plotly
-gunicorn
-accelerate
-sentencepiece
-protobuf
+# PyTorch CPU-only pour Render
+torch==2.9.1+cpu --extra-index-url https://download.pytorch.org/whl/cpu
 
+# Transformers et utilitaires HF
+transformers==4.57.3
+sentencepiece==0.2.1
+huggingface-hub==0.36.0
+safetensors==0.7.0
+protobuf==6.33.2
 
+# ML et preprocessing
+scikit-learn==1.8.0
+pandas==2.3.3
+numpy==2.4.0
+
+# Web & serveur
+flask==3.1.2
+gunicorn==23.0.0
+
+# Divers
+tqdm==4.67.1
+plotly==6.5.0
+requests==2.32.5
