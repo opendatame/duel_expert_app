@@ -6,4 +6,8 @@ tqdm
 pandas
 plotly
 gunicorn
+accelerate
+sentencepiece
+protobuf
+
 
