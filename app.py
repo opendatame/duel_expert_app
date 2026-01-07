@@ -1,7 +1,7 @@
 # app.py
 from flask import Flask, render_template, request
 import pandas as pd
-import ast, os, gc, time, re, requests
+import ast, os, gc, time
 import torch
 import torch.nn as nn
 from transformers import XLMRobertaTokenizerFast, XLMRobertaModel
@@ -9,6 +9,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import plotly.graph_objs as go
 import plotly.io as pio
+import requests
 
 # ----------------------------
 # CONFIG FLASK & PATHS
@@ -42,7 +43,7 @@ class DomainExpert(nn.Module):
         return self.classifier(self.dropout(cls))
 
 # ----------------------------
-# LOAD DOMAIN EXPERT MODEL (CPU/paresseux possible)
+# LOAD DOMAIN EXPERT MODEL
 # ----------------------------
 tokenizer = XLMRobertaTokenizerFast.from_pretrained("xlm-roberta-large")
 df_global = pd.read_csv(GLOBAL_CSV, sep=';', on_bad_lines='skip')
@@ -63,10 +64,14 @@ model.eval()
 # ----------------------------
 # LLM via API externe (HuggingFace)
 # ----------------------------
-HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
+HF_API_TOKEN = os.environ.get("HF_API_TOKEN")  # Récupéré depuis les secrets Render
 HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.3"
 
 def llm_correct_api(text, top10_preds, wrong_top1):
+    """Appelle le LLM Hugging Face pour corriger une mauvaise prédiction"""
+    if not HF_API_TOKEN:
+        return top10_preds[1] if len(top10_preds) > 1 else top10_preds[0]
+
     prompt = f"""
 You are a GENERAL EXPERT correcting a WRONG product classification.
 The current top-1 prediction is WRONG and must NOT be selected again.
@@ -189,6 +194,7 @@ def index():
 
         top10_candidates = df_domain["top10_preds"].iloc[0][:10] if "top10_preds" in df_domain.columns else [top1_label]
 
+        # LLM seulement si top1 incorrect
         if top1_label not in top10_candidates:
             final_label = llm_correct_api(prod, top10_candidates, top1_label)
             llm_msg = "LLM utilisé via API externe"
