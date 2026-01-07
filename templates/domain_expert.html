@@ -4,55 +4,99 @@
     <meta charset="UTF-8">
     <title>🛒 Duel Expert – Product Categorization</title>
     <style>
+        /* === BODY & FOND === */
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-image: url("{{ background_image }}");
             background-size: cover;
             background-attachment: fixed;
-            color: #222;
+            color: #333;
             padding: 20px;
         }
-        h1, h2 { color: #1a73e8; }
-        .metrics, .prediction, .form-section {
-            background-color: rgba(255,255,255,0.9);
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
+        h1, h2 {
+            color: #0d47a1;
+            text-shadow: 1px 1px 2px #ffffffaa;
         }
+
+        /* === BOXES === */
+        .metrics, .prediction, .form-section {
+            background-color: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            margin-bottom: 25px;
+        }
+
+        /* === TABLE === */
         table {
             width: 100%;
             border-collapse: collapse;
-            background-color: rgba(255,255,255,0.9);
+            margin-top: 15px;
+            background-color: rgba(255,255,255,0.95);
         }
         th, td {
-            border: 1px solid #ccc;
-            padding: 8px;
+            border: 1px solid #bbb;
+            padding: 10px;
             text-align: left;
         }
-        th { background-color: #1a73e8; color: white; }
-        tr:nth-child(even) { background-color: rgba(230,230,230,0.8); }
-        input[type="text"] {
-            width: 80%;
-            padding: 8px;
-            margin-right: 10px;
+        th {
+            background-color: #0d47a1;
+            color: #fff;
+        }
+        tr:nth-child(even) {
+            background-color: rgba(13,71,161,0.05);
+        }
+        tr:hover {
+            background-color: rgba(13,71,161,0.15);
+        }
+
+        /* === INPUTS & BOUTONS === */
+        input[type="text"], input[type="file"] {
+            width: 70%;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
         }
         input[type="submit"] {
-            padding: 8px 15px;
-            background-color: #1a73e8;
+            padding: 10px 20px;
+            background: linear-gradient(90deg,#1e88e5,#42a5f5);
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 10px;
             cursor: pointer;
+            font-weight: bold;
+            transition: 0.3s;
         }
         input[type="submit"]:hover {
-            background-color: #155ab6;
+            background: linear-gradient(90deg,#1565c0,#1e88e5);
         }
-        .plotly-div { margin-top: 20px; }
+
+        /* === PLOTLY === */
+        .plotly-div {
+            margin-top: 25px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        /* === MESSAGE CHARGEMENT === */
         #loading-message {
             display: none;
-            margin-top: 10px;
+            margin-top: 15px;
             font-weight: bold;
-            color: #e67e22;
+            color: #e65100;
+        }
+
+        /* === RESPONSIVE === */
+        @media(max-width: 768px){
+            input[type="text"], input[type="file"] {
+                width: 100%;
+                margin-bottom: 15px;
+            }
+            input[type="submit"] {
+                width: 100%;
+            }
         }
     </style>
 </head>
@@ -83,27 +127,53 @@
         {{ plot_html|safe }}
     </div>
 
-    <!-- FORMULAIRE NOUVEAU PRODUIT -->
+    <!-- FORMULAIRE -->
     <div class="form-section">
-        <h2>📝 Prédiction d'un nouveau produit</h2>
-        <form id="predict-form" method="post">
-            <input type="text" name="product_text" placeholder="Entrez la description du produit" required>
+        <h2>📝 Prédiction d'un nouveau produit ou CSV</h2>
+        <form id="predict-form" method="post" enctype="multipart/form-data">
+            <input type="text" name="product_text" placeholder="Entrez la description du produit">
+            <br><br>
+            <input type="file" name="product_csv" accept=".csv">
+            <br><br>
             <input type="submit" value="Prédire">
         </form>
 
-        <!-- Message de chargement -->
         <div id="loading-message">⏳ Chargement du modèle Duel Expert… veuillez patienter !</div>
 
         {% if prediction_result %}
         <div class="prediction">
             <h3>Résultat :</h3>
-            <p><strong>Top-1 Domain Expert:</strong> {{ prediction_result.top1 }}</p>
-            <p><strong>Duel Expert corrigé (final):</strong> {{ prediction_result.final }}</p>
+            {% if prediction_result.single %}
+                <p><strong>Top-1 Domain Expert:</strong> {{ prediction_result.top1 }}</p>
+                <p><strong>Duel Expert corrigé (final):</strong> {{ prediction_result.final }}</p>
+                <p><strong>Temps de prédiction:</strong> {{ prediction_result.time }} secondes</p>
+            {% else %}
+                <p><strong>{{ prediction_result.count }} produits prédits à partir du CSV</strong></p>
+                <table>
+                    <tr>
+                        <th>#</th>
+                        <th>Description</th>
+                        <th>Top-1 Domain Expert</th>
+                        <th>Top-10 Candidates</th>
+                        <th>Duel Expert final</th>
+                    </tr>
+                    {% for p in prediction_result.list %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ p.text[:150] }}{% if p.text|length > 150 %}...{% endif %}</td>
+                        <td>{{ p.top1 }}</td>
+                        <td>{{ p.top10 }}</td>
+                        <td>{{ p.final }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+                <p><strong>Temps total:</strong> {{ prediction_result.time }} secondes</p>
+            {% endif %}
         </div>
         {% endif %}
     </div>
 
-    <!-- TABLE DES PRODUITS -->
+    <!-- TABLE EXEMPLE -->
     <h2>📦 Exemple de 10 premiers produits</h2>
     <table>
         <tr>
@@ -132,7 +202,6 @@
         {% endfor %}
     </table>
 
-    <!-- Script pour afficher le message de chargement -->
     <script>
         document.getElementById("predict-form").addEventListener("submit", function() {
             document.getElementById("loading-message").style.display = "block";
