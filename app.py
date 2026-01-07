@@ -1,10 +1,10 @@
 # app.py
 from flask import Flask, render_template, request
 import pandas as pd
-import ast, os, gc, time, re
+import ast, os, gc, time, re, requests
 import torch
 import torch.nn as nn
-from transformers import XLMRobertaTokenizerFast, XLMRobertaModel, AutoTokenizer, AutoModelForCausalLM
+from transformers import XLMRobertaTokenizerFast, XLMRobertaModel
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import plotly.graph_objs as go
@@ -14,12 +14,14 @@ import plotly.io as pio
 # CONFIG FLASK & PATHS
 # ----------------------------
 app = Flask(__name__)
-BACKGROUND_IMAGE = "/home/aimssn-it/duel_expert_app/static/pexels-karola-g-5632382.jpg"
 
-DOMAIN_CSV = "/home/aimssn-it/duel_expert_app/data/domain_expert_phase2_top10_predictions_full (1).csv"
-DUEL_CSV = "/home/aimssn-it/duel_expert_app/data/duel_expert_mistral_GENERAL_EXPERT_top10_corrected (1).csv"
-GLOBAL_CSV = "/home/aimssn-it/duel_expert_app/data/produits_nettoyes.csv"
-PHASE2_CKPT = "/home/aimssn-it/duel_expert_app/models/domain_expert_flat.pth"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BACKGROUND_IMAGE = "/static/pexels-karola-g-5632382.jpg"
+
+DOMAIN_CSV = os.path.join(BASE_DIR, "data/domain_expert_phase2_top10_predictions_full.csv")
+DUEL_CSV = os.path.join(BASE_DIR, "data/duel_expert_mistral_GENERAL_EXPERT_top10_corrected.csv")
+GLOBAL_CSV = os.path.join(BASE_DIR, "data/produits_nettoyes.csv")
+PHASE2_CKPT = os.path.join(BASE_DIR, "models/domain_expert_flat.pth")
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MAX_LEN = 160
@@ -40,7 +42,7 @@ class DomainExpert(nn.Module):
         return self.classifier(self.dropout(cls))
 
 # ----------------------------
-# TOKENIZER & LABEL ENCODER
+# LOAD DOMAIN EXPERT MODEL (CPU/paresseux possible)
 # ----------------------------
 tokenizer = XLMRobertaTokenizerFast.from_pretrained("xlm-roberta-large")
 df_global = pd.read_csv(GLOBAL_CSV, sep=';', on_bad_lines='skip')
@@ -49,12 +51,9 @@ le = LabelEncoder()
 le.fit(df_global['taxonomy_path'].tolist())
 NUM_CLASSES = len(le.classes_)
 
-# ----------------------------
-# LOAD DOMAIN EXPERT MODEL
-# ----------------------------
 model = DomainExpert(NUM_CLASSES).to(DEVICE)
 if os.path.exists(PHASE2_CKPT):
-    ckpt = torch.load(PHASE2_CKPT, map_location="cpu")
+    ckpt = torch.load(PHASE2_CKPT, map_location=DEVICE)
     sd = ckpt.get("model_state_dict", ckpt) if isinstance(ckpt, dict) else ckpt
     new_sd = {k.replace("module.", ""): v for k, v in sd.items()}
     model.load_state_dict(new_sd, strict=False)
@@ -62,26 +61,15 @@ if os.path.exists(PHASE2_CKPT):
 model.eval()
 
 # ----------------------------
-# LLM MISTRAL - chargement paresseux
+# LLM via API externe (HuggingFace)
 # ----------------------------
-llm_model = None
-llm_tokenizer = None
+HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
+HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.3"
 
-def load_llm():
-    global llm_model, llm_tokenizer
-    if llm_model is None:
-        llm_model_name = "mistralai/Mistral-7B-Instruct-v0.3"
-        llm_tokenizer = AutoTokenizer.from_pretrained(llm_model_name, use_fast=False, trust_remote_code=True)
-        llm_tokenizer.pad_token = llm_tokenizer.eos_token
-        llm_model = AutoModelForCausalLM.from_pretrained(
-            llm_model_name, trust_remote_code=True, torch_dtype=torch.float16, device_map="auto"
-        )
-
-def llm_correct(text, top10_preds, wrong_top1):
-    load_llm()
+def llm_correct_api(text, top10_preds, wrong_top1):
     prompt = f"""
 You are a GENERAL EXPERT correcting a WRONG product classification.
-IMPORTANT: The current top-1 prediction is WRONG and must NOT be selected again.
+The current top-1 prediction is WRONG and must NOT be selected again.
 
 Product:
 {text}
@@ -97,23 +85,23 @@ Rules:
 
 Final choice:
 """
-    inputs = llm_tokenizer(prompt, return_tensors="pt").to(llm_model.device)
-    outputs = llm_model.generate(
-        **inputs, max_new_tokens=40, do_sample=True, temperature=0.3, top_p=0.9,
-        pad_token_id=llm_tokenizer.eos_token_id
-    )
-    out_text = llm_tokenizer.decode(outputs[0], skip_special_tokens=True)
-    match = re.search(r"Final choice\s*:\s*(.+)", out_text, re.IGNORECASE)
-    chosen = None
-    if match:
-        pred = match.group(1).strip()
-        for c in top10_preds:
-            if pred.lower() == c.lower():
-                chosen = c
-                break
-    if chosen is None or chosen == wrong_top1:
-        chosen = top10_preds[1] if len(top10_preds) > 1 else top10_preds[0]
-    return chosen
+    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 40, "temperature": 0.3}}
+    try:
+        response = requests.post(
+            f"https://api-inference.huggingface.co/models/{HF_MODEL}",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        if response.status_code == 200:
+            out_text = response.json()[0]["generated_text"]
+            for c in top10_preds:
+                if c.lower() in out_text.lower() and c != wrong_top1:
+                    return c
+        return top10_preds[1] if len(top10_preds) > 1 else top10_preds[0]
+    except Exception:
+        return top10_preds[1] if len(top10_preds) > 1 else top10_preds[0]
 
 # ----------------------------
 # LOAD CSV DATA
@@ -174,7 +162,7 @@ def index():
     uploaded_file = request.files.get("csv_file")
     products = []
 
-    # Si CSV uploadé
+    # CSV uploadé
     if uploaded_file:
         try:
             df_new = pd.read_csv(uploaded_file, sep=";", on_bad_lines="skip")
@@ -184,12 +172,11 @@ def index():
         except Exception as e:
             llm_msg = f"Erreur lecture CSV : {str(e)}"
     else:
-        # Saisie manuelle
         new_product = request.form.get("product_text")
         if new_product:
             products = [new_product]
 
-    # Boucle sur tous les produits
+    # Boucle produits
     for prod in products:
         enc = tokenizer(prod, truncation=True, padding="max_length", max_length=MAX_LEN, return_tensors="pt")
         input_ids = enc["input_ids"].to(DEVICE)
@@ -200,13 +187,11 @@ def index():
             top1_idx = torch.argmax(logits, dim=-1).item()
             top1_label = le.inverse_transform([top1_idx])[0]
 
-        # Top10 candidats
         top10_candidates = df_domain["top10_preds"].iloc[0][:10] if "top10_preds" in df_domain.columns else [top1_label]
 
-        # Top-1 correct ?
         if top1_label not in top10_candidates:
-            final_label = llm_correct(prod, top10_candidates, top1_label)
-            llm_msg = "LLM utilisé pour raffinement"
+            final_label = llm_correct_api(prod, top10_candidates, top1_label)
+            llm_msg = "LLM utilisé via API externe"
         else:
             final_label = top1_label
             llm_msg = "Top-1 correct, LLM non utilisé"
@@ -219,7 +204,6 @@ def index():
         })
 
     elapsed_time = round(time.time() - start_time, 2)
-
     example_products = df_duel.head(10).to_dict(orient="records")
 
     return render_template(
@@ -237,4 +221,3 @@ def index():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
