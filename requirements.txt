@@ -1,5 +1,7 @@
 # PyTorch CPU-only pour Render
 torch==2.9.1+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+torchvision==0.15.2+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+torchaudio==2.9.1+cpu --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Transformers et utilitaires HF
 transformers==4.57.3
