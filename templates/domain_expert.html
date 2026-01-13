@@ -129,11 +129,13 @@
 
     <!-- FORMULAIRE -->
     <div class="form-section">
-        <h2>📝 Prédiction d'un nouveau produit ou CSV</h2>
+        <h2>📝 Prédiction d'un nouveau produit, image ou CSV</h2>
         <form id="predict-form" method="post" enctype="multipart/form-data">
             <input type="text" name="product_text" placeholder="Entrez la description du produit">
             <br><br>
             <input type="file" name="csv_file" accept=".csv">
+            <br><br>
+            <input type="file" name="product_image" accept="image/*">
             <br><br>
             <input type="submit" value="Prédire">
         </form>
@@ -143,15 +145,37 @@
         {% if prediction_results %}
         <div class="prediction">
             <h3>Résultat :</h3>
-            {% for res in prediction_results %}
-                <p><strong>Top-1 Domain Expert:</strong> {{ res.top1 }}</p>
-                <p><strong>Duel Expert corrigé (final):</strong> {{ res.final }}</p>
-                <p><strong>Top-10 candidats:</strong> {{ res.top10 }}</p>
-                <hr>
-            {% endfor %}
-            <p><strong>Temps total de prédiction:</strong> {{ elapsed_time }} secondes</p>
-            {% if llm_msg %}
-                <p><em>{{ llm_msg }}</em></p>
+            {% if prediction_results|length == 1 %}
+                <p><strong>Top-1 Domain Expert:</strong> {{ prediction_results[0]['top1'] }}</p>
+                <p><strong>Duel Expert final:</strong> {{ prediction_results[0]['final'] }}</p>
+                <p><strong>Temps de prédiction:</strong> {{ elapsed_time }} secondes</p>
+            {% else %}
+                <p><strong>{{ prediction_results|length }} produits prédits à partir du CSV ou image</strong></p>
+                <table>
+                    <tr>
+                        <th>#</th>
+                        <th>Description</th>
+                        <th>Top-1 Domain Expert</th>
+                        <th>Top-10 Domain Expert</th>
+                        <th>Duel Expert final</th>
+                    </tr>
+                    {% for p in prediction_results %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ p['text'][:150] }}{% if p['text']|length > 150 %}...{% endif %}</td>
+                        <td>{{ p['top1'] }}</td>
+                        <td>
+                            {% if p['top10'] %}
+                                {{ p['top10'][:10] }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>{{ p['final'] }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+                <p><strong>Temps total:</strong> {{ elapsed_time }} secondes</p>
             {% endif %}
         </div>
         {% endif %}
@@ -165,23 +189,23 @@
             <th>Description</th>
             <th>Top-1 Domain Expert</th>
             <th>Top-10 Domain Expert</th>
-            <th>Final Duel Expert</th>
+            <th>Duel Expert final</th>
             <th>Vrai label</th>
         </tr>
         {% for p in products %}
         <tr>
             <td>{{ loop.index }}</td>
-            <td>{{ p.text[:150] }}{% if p.text|length > 150 %}...{% endif %}</td>
-            <td>{{ p.top1_pred }}</td>
+            <td>{{ p['description'][:150] }}{% if p['description']|length > 150 %}...{% endif %}</td>
+            <td>{{ p['top1_pred'] }}</td>
             <td>
-                {% if p.top10_preds is iterable %}
-                    {{ p.top10_preds[:10] }}
+                {% if p['top10_preds'] %}
+                    {{ p['top10_preds'][:10] }}
                 {% else %}
-                    {{ p.top10_preds }}
+                    -
                 {% endif %}
             </td>
-            <td>{{ p.final_duel_pred if p.final_duel_pred is defined else '-' }}</td>
-            <td>{{ p.true_label }}</td>
+            <td>{{ p['final_duel_pred'] }}</td>
+            <td>{{ p['true_label'] }}</td>
         </tr>
         {% endfor %}
     </table>
@@ -193,3 +217,4 @@
     </script>
 </body>
 </html>
+
