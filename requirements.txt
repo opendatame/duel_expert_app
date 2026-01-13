@@ -1,7 +1,8 @@
+# PyTorch CPU-only compatible Python 3.13
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.9.1+cpu
-torchvision==0.15.2+cpu
-torchaudio==2.9.1+cpu
+torch==2.9.1
+torchvision==0.15.2
+torchaudio==2.9.1
 
 # Transformers et utilitaires HF
 transformers==4.57.3
